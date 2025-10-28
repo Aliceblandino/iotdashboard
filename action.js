@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import { InfluxDB, Point } from "@influxdata/influxdb-client";
 import { config } from "./influxConfig";
+import {url} from "./flaskService";
 
-// 🧠 Funzione per inviare un'azione manuale al server Flask
+//funzione per inviare un'azione manuale al server Flask
 export async function sendManualAction(sensorName = "temperaturaC", valore = 3) {
   try {
-    const response = await fetch("http://localhost:5000/manual_action", {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ dataKey: sensorName, valore }),
@@ -19,7 +20,7 @@ export async function sendManualAction(sensorName = "temperaturaC", valore = 3) 
   }
 }
 
-// ⚙️ Bottone React riutilizzabile
+//Bottone React riutilizzabile
 export function ManualActionButton({ sensorName = "temperaturaC", percent = 3 }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);

@@ -2,17 +2,59 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getSensorData } from "./influxService";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
-import { sendManualAction } from "./action"; // o "./influxService" se lo hai lì
+import { sendManualAction } from "./action";
 
-//Mappa sensori: titoli, unità e descrizioni
+// Mappa sensori: titoli, unità, descrizioni e soglie
 const sensorsInfo = {
-  temperaturaC: { title: "🌡️ Temperatura", unit: "°C", description: "Temperatura ideale tra 18 e 28 °C per la pianta domestica." },
-  umiditaAria: { title: "💧 Umidità Aria", unit: "%", description: "Umidità dell’aria ottimale per la crescita e la fotosintesi." },
-  luce_percentuale: { title: "💡 Luce", unit: "%", description: "Percentuale di luce disponibile per la fotosintesi." },
-  co2_grezzo: { title: "🫁 CO₂", unit: "ppm", description: "Livello di CO₂ nell’aria; valori ottimali 300–600 ppm." },
-  umiditaTerreno_percentuale: { title: "🌱 Umidità Terreno", unit: "%", description: "Umidità del terreno per mantenere le radici sane." },
-  conducibilita_grezza: { title: "⚡ Conducibilità", unit: "", description: "Conducibilità del terreno, indicativa della quantità di nutrienti." },
-  pH: { title: "🧪 pH", unit: "", description: "Valore del pH del terreno, ottimale tra 5.5 e 7.5." },
+  temperaturaC: {
+    title: "🌡️ Temperatura",
+    unit: "°C",
+    description: "Temperatura ideale tra 18 e 28 °C per la pianta domestica.",
+    minSafe: 18,
+    maxSafe: 28
+  },
+  umiditaAria: {
+    title: "💧 Umidità Aria",
+    unit: "%",
+    description: "Umidità dell’aria ottimale per la crescita e la fotosintesi.",
+    minSafe: 40,
+    maxSafe: 70
+  },
+  luce_percentuale: {
+    title: "💡 Luce",
+    unit: "%",
+    description: "Percentuale di luce disponibile per la fotosintesi.",
+    minSafe: 30,
+    maxSafe: 90
+  },
+  co2_grezzo: {
+    title: "🫁 CO₂",
+    unit: "ppm",
+    description: "Livello di CO₂ nell’aria; valori ottimali 300–600 ppm.",
+    minSafe: 300,
+    maxSafe: 600
+  },
+  umiditaTerreno_percentuale: {
+    title: "🌱 Umidità Terreno",
+    unit: "%",
+    description: "Umidità del terreno per mantenere le radici sane.",
+    minSafe: 30,
+    maxSafe: 80
+  },
+  conducibilita_grezza: {
+    title: "⚡ Conducibilità",
+    unit: "",
+    description: "Conducibilità del terreno, indicativa della quantità di nutrienti.",
+    minSafe: 100,
+    maxSafe: 500
+  },
+  pH: {
+    title: "🧪 pH",
+    unit: "",
+    description: "Valore del pH del terreno, ottimale tra 5.5 e 7.5.",
+    minSafe: 5.5,
+    maxSafe: 7.5
+  }
 };
 
 function SensorDetail() {
@@ -21,10 +63,15 @@ function SensorDetail() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [lastAction, setLastAction] = useState(null);
+  const [animate, setAnimate] = useState(false);
+  const [lastValue, setLastValue] = useState(null);
 
-  const sensor = sensorsInfo[id] || { title: id, description: "", unit: "" };
+  const sensor = sensorsInfo[id] || { title: id, description: "", unit: "", minSafe: 0, maxSafe: 100 };
+  const { minSafe, maxSafe } = sensor;
 
-  // 📥 Carica dati
+  const latestValue = data.length > 0 ? data[data.length - 1][id] : null;
+  const isAlert = latestValue < minSafe || latestValue > maxSafe;
+
   useEffect(() => {
     const fetchData = async () => {
       const rows = await getSensorData();
@@ -33,7 +80,14 @@ function SensorDetail() {
     fetchData();
   }, []);
 
-  const latestValue = data && data.length > 0 ? data[data.length - 1][id] : null;
+  useEffect(() => {
+    if (lastValue !== null && lastValue !== latestValue) {
+      setAnimate(true);
+      const t = setTimeout(() => setAnimate(false), 600);
+      return () => clearTimeout(t);
+    }
+    setLastValue(latestValue);
+  }, [latestValue]);
 
   const formatValue = (val) => {
     if (val == null) return "--";
@@ -56,13 +110,16 @@ function SensorDetail() {
     return null;
   };
 
-  // 💧 Pulsante azione manuale
   const handleManualAction = async () => {
     setLoading(true);
-    const valore=-5;
+    const media = (minSafe + maxSafe) / 2;
+    const delta = media * 0.15;
+    const valore = Math.round(latestValue > media ? -delta : delta);
+    alert(`Invio azione manuale con valore: ${valore}`);
+
     try {
-      await sendManualAction(id, valore); //invia id e valore
-      //setLastAction(valore); //aggiorna stato ultima azione
+      await sendManualAction(id, valore);
+      setLastAction(valore);
     } catch (err) {
       alert("❌ Errore durante l'invio dell'azione manuale");
     } finally {
@@ -71,7 +128,10 @@ function SensorDetail() {
   };
 
   return (
-    <div className="p-4 bg-white rounded-2xl shadow-lg max-w-4xl mx-auto">
+    <div className={`p-4 rounded-2xl shadow-lg max-w-4xl mx-auto transition ${
+      isAlert ? "bg-red-100 border border-red-400 animate-pulse-3" : "bg-white"
+    }`}>
+
       <button
         onClick={() => navigate(-1)}
         className="mb-4 text-green-700 hover:text-green-900 font-semibold"
@@ -79,13 +139,14 @@ function SensorDetail() {
         ← Torna alla Dashboard
       </button>
 
-      <div className="flex justify-between items-end mb-2">
+      <div className="flex justify-between items-center mb-2">
         <h2 className="text-3xl font-bold text-green-800">{sensor.title}</h2>
-        <p className="text-lg text-gray-700">
-          Valore attuale:{" "}
-          <span className="font-semibold text-green-700">
-            {formatValue(latestValue)} {sensor.unit}
-          </span>
+        <p
+          className={`text-xl font-bold transition ${
+            isAlert ? "text-red-600 animate-pulse" : "text-green-700"
+          } ${animate ? "scale-105" : ""}`}
+        >
+          {formatValue(latestValue)} {sensor.unit}
         </p>
       </div>
 
@@ -102,17 +163,17 @@ function SensorDetail() {
 
       <div className="flex gap-2 mt-4">
         <button
-          className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded-md"
+          className={`px-3 py-1 rounded-md text-white transition ${
+            isAlert
+              ? "bg-red-500 hover:bg-red-600 animate-pulse"
+              : "bg-green-500 hover:bg-green-600"
+          }`}
           disabled={loading}
-          onClick={() => handleManualAction()}
+          onClick={handleManualAction}
         >
           Manual action
         </button>
       </div>
-
-      {lastAction != null && (
-        <p className="text-xs text-gray-700 mt-2">Ultima azione inviata: {lastAction}</p>
-      )}
     </div>
   );
 }
